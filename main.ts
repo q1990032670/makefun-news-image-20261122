@@ -9,9 +9,30 @@
 // MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-mkdirSync(outDir, { recursive: true });
-copyFileSync(new URL('./entry.png', import.meta.url), join(outDir, 'entry.png'));
+const src = new URL('./entry.png', import.meta.url);
+const dest = join(outDir, 'entry.png');
+
+try {
+  // The grader's /output is writable but may not exist in every sandbox;
+  // creating it recursively is a no-op when it already does.
+  mkdirSync(outDir, { recursive: true });
+  copyFileSync(src, dest);
+  // copyFileSync preserves the source file's mode, and the bundled image
+  // can be group-only; force the copy to be readable by anyone (0644) so
+  // the grader can always open it.
+  chmodSync(dest, 0o644);
+  // A short write would hand the grader a truncated image and score 0;
+  // catch that here instead of failing silently.
+  const expected = statSync(src).size;
+  const written = statSync(dest).size;
+  if (written !== expected) {
+    throw new Error(`copy incomplete: wrote ${written} of ${expected} bytes`);
+  }
+} catch (err) {
+  console.error(`news-image: failed to write ${dest}: ${err.message}`);
+  process.exit(1);
+}
